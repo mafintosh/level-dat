@@ -1,4 +1,3 @@
-var memdown = require('memdown')
 var through = require('through2')
 var pumpify = require('pumpify')
 var once = require('once')

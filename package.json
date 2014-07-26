@@ -8,7 +8,6 @@
     "byte-stream": "^2.0.3",
     "level-mutex": "^0.7.0",
     "lexicographic-integer": "^1.1.0",
-    "memdown": "^0.10.2",
     "once": "^1.3.0",
     "pumpify": "^1.2.1",
     "through2": "^0.5.1"
