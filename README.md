@@ -70,7 +70,7 @@ Stream data into the database. Data can include versions.
 
 #### `db.createChangesReadStream([opts])`
 
-Get a change feed stream from the database. Set `options.change` to only get a partial stream and `options.data` to get the data as well.
+Get a change feed stream from the database. Set `options.since = change` to only get a partial stream and `options.data` to get the data as well.
 
 #### `db.createChangesWriteStream([opts])`
 
