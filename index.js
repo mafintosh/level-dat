@@ -386,7 +386,7 @@ LevelDat.prototype.putMeta = function(key, value, opts, cb) {
 }
 
 LevelDat.prototype.getMeta = function(key, opts, cb) {
-  if (typeof opts === 'function') return this.getMeta(key, null, cb)
+  if (typeof opts === 'function') return this.getMeta(key, null, opts)
   opts = this._mixin(opts)
 
   var self = this
