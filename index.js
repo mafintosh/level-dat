@@ -344,7 +344,7 @@ LevelDat.prototype.delete = function(key, cb) {
     var version = unpack(v)
 
     debug('del data.%s', key)
-    self.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, version, 'delete']))
+    self.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, version, 'delete']), noop)
     self.mutex.put(PREFIX_CUR+key, v+SEP+'1', cb)
   })
 }
