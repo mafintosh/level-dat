@@ -1,6 +1,6 @@
 # level-dat
 
-LevelDB storage backend for dat
+LevelDB storage backend for [Dat](https://github.com/maxogden/dat)
 
 ``` js
 npm install level-dat
