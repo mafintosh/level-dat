@@ -1,0 +1,35 @@
+{
+  "name": "level-dat",
+  "version": "0.0.0",
+  "description": "leveldb storage backend for dat",
+  "main": "index.js",
+  "dependencies": {
+    "debug": "^1.0.4",
+    "byte-stream": "^2.0.3",
+    "level-mutex": "^0.7.0",
+    "lexicographic-integer": "^1.1.0",
+    "memdown": "^0.10.2",
+    "once": "^1.3.0",
+    "pumpify": "^1.2.1",
+    "through2": "^0.5.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "tape test/*.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mafintosh/level-dat"
+  },
+  "keywords": [
+    "leveldb",
+    "dat",
+    "levelup"
+  ],
+  "author": "Mathias Buus",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/mafintosh/level-dat/issues"
+  },
+  "homepage": "https://github.com/mafintosh/level-dat"
+}
