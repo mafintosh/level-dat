@@ -183,13 +183,7 @@ LevelDat.prototype.createWriteStream = function(opts) {
   })
 
   var ws = through.obj(function(batch, enc, cb) {
-    var wait = waiter(batch.length, cb)
-
-    for (var i = 0; i < batch.length; i++) {
-      var b = batch[i]
-      if (b.type === 'delete') return self.del(b.key, wait)
-      self._put(b.key, b.value, opts, b.version || 0, wait)
-    }
+    self.batch(batch, cb)
   })
 
   return pumpify.obj(format, buffer, ws)
@@ -207,7 +201,7 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
   })
 
   var format = through.obj(function(data, enc, cb) {
-    if (!data.value) return cb(new Error('data.value is required'))
+    if (!data.value && data.type !== 'delete') return cb(new Error('data.value is required'))
     data.length = data.value ? data.value.length || 1 : 1
     cb(null, data)
   })
@@ -310,6 +304,21 @@ LevelDat.prototype.put = function(key, value, opts, cb) {
   this._put(key, value, opts, opts.version, cb)
 }
 
+LevelDat.prototype.batch = function(batch, opts, cb) {
+  if (typeof opts === 'function') return this.batch(batch, null, opts)
+  if (!cb) cb = noop
+  opts = this._mixin(opts)
+
+  if (!batch.length) return cb()
+  var wait = waiter(batch.length, cb)
+
+  for (var i = 0; i < batch.length; i++) {
+    var b = batch[i]
+    if (b.type === 'delete') this.del(b.key, wait)
+    else this._put(b.key, b.value, opts, b.version || 0, wait)
+  }
+}
+
 LevelDat.prototype._put = function(key, value, opts, version, cb) {
   this._assert()
   if (!version) version = 1
@@ -321,7 +330,7 @@ LevelDat.prototype._put = function(key, value, opts, version, cb) {
     if (curV) curV = unpack(curV)
     if (curV) debug('put data.%s existing version exist (old-version: %d, new-version: %d)', key, curV, version)
 
-    if (version < curV) return cb(conflict(key, version))
+    if (version < curV && !opts.force) return cb(conflict(key, version))
     if (version === curV) version++
 
     var v = pack(+version)
@@ -356,6 +365,7 @@ LevelDat.prototype.delete = function(key, cb) {
 LevelDat.prototype._mixin = function(opts) {
   if (!opts) opts = {}
   if (!opts.valueEncoding) opts.valueEncoding = this.defaults.valueEncoding
+  if (this.defaults.force && opts.force === undefined) opts.force = true
   return opts
 }
 
