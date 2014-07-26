@@ -6,6 +6,9 @@ LevelDB storage backend for [Dat](https://github.com/maxogden/dat)
 npm install level-dat
 ```
 
+[![build status](http://img.shields.io/travis/mafintosh/level-dat.svg?style=flat)](http://travis-ci.org/mafintosh/level-dat)
+![dat](http://img.shields.io/badge/Development%20sponsored%20by-dat-green.svg?style=flat)
+
 ## Usage
 
 ``` js
