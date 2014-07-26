@@ -81,7 +81,7 @@ var LevelDat = function(db, opts, onready) {
 
     self.change = value ? JSON.parse(value)[0] : 0
     debug('head change: %d', self.change)
-    self.emit('ready')
+    self.emit('ready', self)
   })
 
   if (onready) this.on('ready', onready)
