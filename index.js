@@ -234,14 +234,16 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
 
   var self = this
   var addData = !!opts.data
+  var since = opts.since || 0
 
   var rs = this.db.createReadStream({
-    start: PREFIX_CHANGE+pack(opts.change || 0),
+    start: PREFIX_CHANGE+pack(since),
     end: PREFIX_CHANGE+SEP
   })
 
   var format = through.obj(function(data, enc, cb) {
     var value = JSON.parse(data.value)
+    if (value[0] === since) return cb()
 
     var data = {
       key: value[1],
@@ -406,7 +408,7 @@ LevelDat.prototype.count = function(cb) {
     if (result.change === self.change) return cb(null, result.count)
 
     var changes = self.createChangesReadStream({
-      change: result.change
+      since: result.change
     })
 
     var persist = function(cb) {
@@ -429,7 +431,7 @@ LevelDat.prototype.count = function(cb) {
     changes.on('error', cb)
     changes.pipe(through.obj(ondata)).on('finish', function() {
       persist(function() {
-        cb(null, result)
+        cb(null, result.count)
       })
     })
   })
