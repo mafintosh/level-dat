@@ -321,6 +321,7 @@ LevelDat.prototype.batch = function(batch, opts, cb) {
 
 LevelDat.prototype._put = function(key, value, opts, version, cb) {
   this._assert()
+  var autoVersion = !version
   if (!version) version = 1
   opts = this._mixin(opts)
 
@@ -330,6 +331,7 @@ LevelDat.prototype._put = function(key, value, opts, version, cb) {
     if (curV) curV = unpack(curV)
     if (curV) debug('put data.%s existing version exist (old-version: %d, new-version: %d)', key, curV, version)
 
+    if (version === curV && autoVersion && !opts.force) return cb(conflict(key, version))
     if (version < curV && !opts.force) return cb(conflict(key, version))
     if (version === curV) version++
 
