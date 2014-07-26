@@ -11,7 +11,10 @@ module.exports = function(name, fn) {
   tape(name, function(t) {
     var db = create()
     db.on('ready', function() {
-      fn(t, db, create)
+      var db2 = create()
+      db2.on('ready', function() {
+        fn(t, db, db2)
+      })
     })
   })
 }
