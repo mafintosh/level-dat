@@ -111,6 +111,7 @@ LevelDat.prototype.createVersionStream = function(key, opts) {
   return pumpify.obj(rs, stream)
 }
 
+LevelDat.prototype.valueStream =
 LevelDat.prototype.createValueStream = function(opts) {
   opts = this._mixin(opts)
   opts.keys = false
@@ -118,6 +119,7 @@ LevelDat.prototype.createValueStream = function(opts) {
   return this.createReadStream(opts)
 }
 
+LevelDat.prototype.keyStream =
 LevelDat.prototype.createKeyStream = function(opts) {
   opts = this._mixin(opts)
   opts.keys = true
@@ -125,6 +127,7 @@ LevelDat.prototype.createKeyStream = function(opts) {
   return this.createReadStream(opts)
 }
 
+LevelDat.prototype.readStream =
 LevelDat.prototype.createReadStream = function(opts) {
   opts = this._mixin(opts)
 
@@ -162,6 +165,7 @@ LevelDat.prototype.createReadStream = function(opts) {
   return pumpify.obj(rs, get)
 }
 
+LevelDat.prototype.writeStream =
 LevelDat.prototype.createWriteStream = function(opts) {
   this._assert()
   opts = this._mixin(opts)
