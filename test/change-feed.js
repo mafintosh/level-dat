@@ -142,3 +142,29 @@ test('feeds are equal after pipe', function(t, db1, db2) {
     })
   })
 })
+
+test('feeds can be live', function(t, db) {
+  t.plan(3)
+
+  var feed = db.createChangesReadStream({
+    live: true,
+    data: true
+  })
+
+  var expects = [
+    {change:1, key:'hej', value:'verden', version:1, type:'create'},
+    {change:2, key:'hello', value:'verden', version:1, type:'create'}
+  ]
+
+  feed.on('data', function(data) {
+    t.same(data, expects.shift())
+    if (!expects.length) feed.destroy()
+  })
+
+  feed.on('close', function() {
+    t.ok(true, 'feed closes')
+  })
+
+  db.put('hej', 'verden')
+  db.put('hello', 'verden')
+})
