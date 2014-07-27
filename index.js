@@ -94,7 +94,7 @@ Meta.prototype.put = function(key, value, opts, cb) {
 
 var LevelDat = function(db, opts, onready) {
   if (!(this instanceof LevelDat)) return new LevelDat(db, opts, onready)
-  if (typeof opts === 'function') return new LevelDat(db, null, onready)
+  if (typeof opts === 'function') return new LevelDat(db, null, opts)
   if (!opts) opts = {}
 
   var self = this
@@ -105,6 +105,8 @@ var LevelDat = function(db, opts, onready) {
   this.defaults = opts
   this.meta = new Meta(this.mutex)
 
+  if (onready) this.on('ready', onready)
+
   this.mutex.peekLast({last:PREFIX_CHANGE+SEP}, function(err, key, value) {
     if (err && err.message !== 'range not found') return self.emit('error', err)
 
@@ -112,8 +114,6 @@ var LevelDat = function(db, opts, onready) {
     debug('head change: %d', self.change)
     self.emit('ready', self)
   })
-
-  if (onready) this.on('ready', onready)
 }
 
 util.inherits(LevelDat, events.EventEmitter)
