@@ -40,11 +40,11 @@ Delete a key.
 
 Count all rows in the database.
 
-#### `db.getMeta(key, cb)`
+#### `db.meta.get(key, cb)`
 
 Get a meta key.
 
-#### `db.putMeta(key, value, [opts], [cb])`
+#### `db.meta.put(key, value, [opts], [cb])`
 
 Insert a meta key.
 

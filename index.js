@@ -63,6 +63,35 @@ var unpack = function(n) {
   return lexint.unpack(n, 'hex')
 }
 
+var Meta = function(mutex) {
+  this.mutex = mutex
+}
+
+Meta.prototype.get = function(key, opts, cb) {
+  if (typeof opts === 'function') return this.get(key, null, opts)
+  if (!opts) opts = {}
+  if (!opts.valueEncoding) opts.valueEncoding = 'json'
+
+  var self = this
+  this.mutex.afterWrite(function() {
+    debug('get meta.%s', key)
+    self.mutex.get(PREFIX_META+key, opts, function(err, val) {
+      if (err) return cb(err)
+      cb(null, val)
+    })
+  })
+}
+
+Meta.prototype.put = function(key, value, opts, cb) {
+  if (typeof opts === 'function') return this.put(key, value, null, opts)
+  if (!cb) cb = noop
+  if (!opts) opts = {}
+  if (!opts.valueEncoding) opts.valueEncoding = 'json'
+
+  debug('put meta.%s', key)
+  this.mutex.put(PREFIX_META+key, value, opts, cb)
+}
+
 var LevelDat = function(db, opts, onready) {
   if (!(this instanceof LevelDat)) return new LevelDat(db, opts, onready)
   if (typeof opts === 'function') return new LevelDat(db, null, onready)
@@ -74,6 +103,7 @@ var LevelDat = function(db, opts, onready) {
   this.mutex = mutex(db)
   this.change = opts.change || -1
   this.defaults = opts
+  this.meta = new Meta(this.mutex)
 
   this.mutex.peekLast({last:PREFIX_CHANGE+SEP}, function(err, key, value) {
     if (err && err.message !== 'range not found') return self.emit('error', err)
@@ -377,33 +407,11 @@ LevelDat.prototype._assert = function() {
   if (this.change === -1) throw new Error('Database is not ready. Wait for the ready event.')
 }
 
-LevelDat.prototype.putMeta = function(key, value, opts, cb) {
-  if (typeof opts === 'function') return this.putMeta(key, value, null, opts)
-  if (!cb) cb = noop
-  opts = this._mixin(opts)
-
-  this.mutex.put(PREFIX_META+key, value, opts, cb)
-}
-
-LevelDat.prototype.getMeta = function(key, opts, cb) {
-  if (typeof opts === 'function') return this.getMeta(key, null, opts)
-  opts = this._mixin(opts)
-
-  var self = this
-  this.mutex.afterWrite(function() {
-    debug('get meta.%s', key)
-    self.mutex.get(PREFIX_META+key, opts, function(err, val) {
-      if (err) return cb(err)
-      cb(null, val)
-    })
-  })
-}
-
 LevelDat.prototype.count = function(cb) {
   var self = this
 
   cb = once(cb)
-  this.getMeta('_count', {valueEncoding:'json'}, function(err, result) {
+  this.meta.get('_count', {valueEncoding:'json'}, function(err, result) {
     if (!result) result = {count:0, change:0}
     if (result.change === self.change) return cb(null, result.count)
 
@@ -413,7 +421,7 @@ LevelDat.prototype.count = function(cb) {
 
     var persist = function(cb) {
       debug('put meta._count (change: %d, count: %d)', result.change, result.count)
-      self.putMeta('_count', result, {valueEncoding:'json'}, function(err) {
+      self.meta.put('_count', result, {valueEncoding:'json'}, function(err) {
         if (err) return cb(err)
         cb(null)
       })

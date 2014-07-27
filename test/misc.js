@@ -35,9 +35,9 @@ test('count + del', function(t, db) {
 })
 
 test('meta', function(t, db) {
-  db.putMeta('hello', 'world', function(err) {
+  db.meta.put('hello', 'world', function(err) {
     t.notOk(err, 'no err')
-    db.getMeta('hello', function(err, val) {
+    db.meta.get('hello', function(err, val) {
       t.notOk(err, 'no err')
       t.same(val, 'world')
       t.end()
