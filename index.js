@@ -327,10 +327,6 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
   if (opts.tail === true) rs = this._tail(getSince)
   else if (opts.live) rs = multistream.obj([rs, this._tail(getSince)])
 
-  rs.on('close', function() {
-    if (rs._current && rs._current.destroy) rs._current.destroy() // hack until PR is merged
-  })
-
   var format = through.obj(function(data, enc, cb) {
     var value = JSON.parse(data)
     if (value[0] <= since) return cb()
