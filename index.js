@@ -4,6 +4,8 @@ var once = require('once')
 var lexint = require('lexicographic-integer')
 var mutex = require('level-mutex')
 var byteStream = require('byte-stream')
+var multistream = require('multistream')
+var from = require('from2')
 var debug = require('debug')('level-dat')
 var util = require('util')
 var events = require('events')
@@ -99,9 +101,17 @@ var LevelDat = function(db, opts, onready) {
 
   var self = this
 
+  this.onchange = []
+  this.onchangewrite = function() {
+    self.changeFlushed = self.change
+    for (var i = 0; i < self.onchange.length; i++) self.onchange[i]()
+  }
+
   this.db = db
   this.mutex = mutex(db)
   this.change = opts.change || -1
+  this.changeFlushed = this.change
+
   this.defaults = opts
   this.meta = new Meta(this.mutex)
 
@@ -111,6 +121,7 @@ var LevelDat = function(db, opts, onready) {
     if (err && err.message !== 'range not found') return self.emit('error', err)
 
     self.change = value ? JSON.parse(value)[0] : 0
+    self.changeFlushed = self.change
     debug('head change: %d', self.change)
     self.emit('ready', self)
   })
@@ -246,10 +257,10 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
       debug('put change (change: %d, key: %s, version: %d, type: %s)', b.change, b.key, b.version, b.type)
 
       if (b.type === 'delete') {
-        self.mutex.put(PREFIX_CHANGE+pack(b.change), JSON.stringify([b.change, b.key, b.version, 'delete']), noop)
+        self._change(b.change, b.key, b.version, 'delete')
         self.mutex.put(PREFIX_CUR+b.key, v+SEP+'1', wait)
       } else {
-        self.mutex.put(PREFIX_CHANGE+pack(b.change), JSON.stringify([b.change, b.key, b.version, b.type]), noop)
+        self._change(b.change, b.key, b.version, b.type)
         self.mutex.put(PREFIX_CUR+b.key, v, noop)
         self.mutex.put(PREFIX_DATA+b.key+SEP+v, b.value, opts, wait)
       }
@@ -259,21 +270,67 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
   return pumpify.obj(format, buffer, ws)
 }
 
+LevelDat.prototype._tail = function(getSince) {
+  var self = this
+  var since = -1
+  var next
+
+  var rs = from.obj(function(size, cb) {
+    if (since === -1) since = getSince()
+    next = cb
+    onchange()
+  })
+
+  var onchange = function() {
+    if (!next || self.changeFlushed <= since) return
+    var cb = next
+    next = null
+    self.mutex.get(PREFIX_CHANGE+pack(++since), function(err, val) {
+      if (err) return rs.destroy(err)
+      debug('get change live (change: %d)', since)
+      cb(null, val)
+    })
+  }
+
+  var cleanup = once(function() {
+    self.onchange.splice(self.onchange.indexOf(onchange), 1)
+  })
+
+  self.onchange.push(onchange)
+  rs.on('end', cleanup)
+  rs.on('close', cleanup)
+
+  return rs
+}
+
 LevelDat.prototype.createChangesReadStream = function(opts) {
+  this._assert()
   opts = this._mixin(opts)
+
+  if (typeof opts.tail === 'number') opts.since = this.changeFlushed - opts.tail
 
   var self = this
   var addData = !!opts.data
   var since = opts.since || 0
+  var lastChange = since
 
-  var rs = this.db.createReadStream({
+  var rs = this.db.createValueStream({
     start: PREFIX_CHANGE+pack(since),
     end: PREFIX_CHANGE+SEP
   })
 
+  var getSince = function() {
+    return lastChange
+  }
+
+  if (opts.tail === true) rs = this._tail(getSince)
+  else if (opts.live) rs = multistream.obj([rs, this._tail(getSince)])
+
   var format = through.obj(function(data, enc, cb) {
-    var value = JSON.parse(data.value)
-    if (value[0] === since) return cb()
+    var value = JSON.parse(data)
+    if (value[0] <= since) return cb()
+
+    lastChange = value[0]
 
     var data = {
       key: value[1],
@@ -371,7 +428,7 @@ LevelDat.prototype._put = function(key, value, opts, version, cb) {
     var change = ++self.change
 
     debug('put data.%s (version: %d)', key, version)
-    self.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, version, curV ? 'update' : 'create']), noop)
+    self._change(change, key, version, curV ? 'update' : 'create')
     self.mutex.put(PREFIX_CUR+key, v, noop)
     self.mutex.put(PREFIX_DATA+key+SEP+v, value, opts, cb)
   })
@@ -391,9 +448,13 @@ LevelDat.prototype.delete = function(key, cb) {
     var version = unpack(v)
 
     debug('del data.%s', key)
-    self.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, version, 'delete']), noop)
+    self._change(change, key, version, 'delete')
     self.mutex.put(PREFIX_CUR+key, v+SEP+'1', cb)
   })
+}
+
+LevelDat.prototype._change = function(change, key, version, type) {
+  this.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, version, type]), this.onchangewrite)
 }
 
 LevelDat.prototype._mixin = function(opts) {
