@@ -242,7 +242,7 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
   })
 
   var format = through.obj(function(data, enc, cb) {
-    if (!data.value && data.type !== 'delete') return cb(new Error('data.value is required'))
+    if (!data.value && data.to !== null) return cb(new Error('data.value is required'))
     data.length = data.value ? data.value.length || 1 : 1
     cb(null, data)
   })
@@ -252,15 +252,15 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
 
     for (var i = 0; i < batch.length; i++) {
       var b = batch[i]
-      var v = pack(b.version)
 
-      debug('put change (change: %d, key: %s, version: %d, type: %s)', b.change, b.key, b.version, b.type)
+      debug('put change (change: %d, key: %s, to: %s, from: %s)', b.change, b.key, b.to, b.from)
 
-      if (b.type === 'delete') {
-        self._change(b.change, b.key, b.version, 'delete')
-        self.mutex.put(PREFIX_CUR+b.key, v+SEP+'1', wait)
+      if (b.to === null) {
+        self._change(b.change, b.key, b.from, null)
+        self.mutex.put(PREFIX_CUR+b.key, pack(b.from)+SEP+'1', wait)
       } else {
-        self._change(b.change, b.key, b.version, b.type)
+        var v = pack(b.to)
+        self._change(b.change, b.key, b.from, b.to)
         self.mutex.put(PREFIX_CUR+b.key, v, noop)
         self.mutex.put(PREFIX_DATA+b.key+SEP+v, b.value, opts, wait)
       }
@@ -334,16 +334,16 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
     lastChange = value[0]
 
     var data = {
-      key: value[1],
-      version: value[2],
       change: value[0],
-      type: value[3]
+      key: value[1],
+      from: value[2],
+      to: value[3]
     }
 
-    debug('get change (change: %d, key: %s, version: %d, type: %s, data: %s)', data.change, data.key, data.version, data.type, addData)
-    if (!addData || data.type === 'delete') return cb(null, data)
+    debug('get change (change: %d, key: %s, to: %s, from: %s, data: %s)', data.change, data.key, data.to, data.from, addData)
+    if (!addData || data.to === null) return cb(null, data)
 
-    self._get(data.key, opts, data.version, function(err, value) {
+    self._get(data.key, opts, data.to, function(err, value) {
       if (err) return cb(err)
       data.value = value
       cb(null, data)
@@ -419,17 +419,17 @@ LevelDat.prototype._put = function(key, value, opts, version, cb) {
 
   this.mutex.get(PREFIX_CUR+key, function(_, curV) {
     if (curV) curV = unpack(curV)
-    if (curV) debug('put data.%s existing version exist (old-version: %d, new-version: %d)', key, curV, version)
+    if (curV) debug('put data.%s existing version exist (to: %d, from: %d)', key, version, curV)
 
     if (version === curV && autoVersion && !opts.force) return cb(conflict(key, version))
     if (version < curV && !opts.force) return cb(conflict(key, version))
     if (version === curV) version++
 
-    var v = pack(+version)
+    var v = pack(version)
     var change = ++self.change
 
     debug('put data.%s (version: %d)', key, version)
-    self._change(change, key, version, curV ? 'update' : 'create')
+    self._change(change, key, curV || null, version)
     self.mutex.put(PREFIX_CUR+key, v, noop)
     self.mutex.put(PREFIX_DATA+key+SEP+v, value, opts, cb)
   })
@@ -449,13 +449,13 @@ LevelDat.prototype.delete = function(key, cb) {
     var version = unpack(v)
 
     debug('del data.%s', key)
-    self._change(change, key, version, 'delete')
+    self._change(change, key, version, null)
     self.mutex.put(PREFIX_CUR+key, v+SEP+'1', cb)
   })
 }
 
-LevelDat.prototype._change = function(change, key, version, type) {
-  this.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, version, type]), this.onchangewrite)
+LevelDat.prototype._change = function(change, key, from, to) {
+  this.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, from, to]), this.onchangewrite)
 }
 
 LevelDat.prototype._mixin = function(opts) {
@@ -473,7 +473,7 @@ LevelDat.prototype.count = function(cb) {
   var self = this
 
   cb = once(cb)
-  this.meta.get('_count', {valueEncoding:'json'}, function(err, result) {
+  this.meta.get('_count', function(err, result) {
     if (!result) result = {count:0, change:0}
     if (result.change === self.change) return cb(null, result.count)
 
@@ -483,7 +483,7 @@ LevelDat.prototype.count = function(cb) {
 
     var persist = function(cb) {
       debug('put meta._count (change: %d, count: %d)', result.change, result.count)
-      self.meta.put('_count', result, {valueEncoding:'json'}, function(err) {
+      self.meta.put('_count', result, function(err) {
         if (err) return cb(err)
         cb(null)
       })
@@ -492,8 +492,8 @@ LevelDat.prototype.count = function(cb) {
     var inc = 0
     var ondata = function(data, enc, cb) {
       result.change = data.change
-      if (data.type === 'create') result.count++
-      else if (data.type === 'delete') result.count--
+      if (data.to !== null && data.from === null) result.count++
+      if (data.to === null && data.from !== null) result.count--
       if (++inc % 5000) cb()
       else persist(cb)
     }

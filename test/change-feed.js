@@ -6,8 +6,8 @@ test('read changes feed', function(t, db) {
     db.put('hej', 'verden', function() {
       db.createChangesReadStream().pipe(concat(function(changes) {
         t.same(changes.length, 2, '2 changes')
-        t.same(changes[0], {key:'hello', change:1, version:1, type:'create'})
-        t.same(changes[1], {key:'hej', change:2, version:1, type:'create'})
+        t.same(changes[0], {key:'hello', change:1, to:1, from:null})
+        t.same(changes[1], {key:'hej', change:2, to:1, from:null})
         t.end()
       }))
     })
@@ -19,8 +19,8 @@ test('read changes feed + data', function(t, db) {
     db.put('hej', 'verden', function() {
       db.createChangesReadStream({data:true}).pipe(concat(function(changes) {
         t.same(changes.length, 2, '2 changes')
-        t.same(changes[0], {key:'hello', change:1, version:1, type:'create', value:'world'})
-        t.same(changes[1], {key:'hej', change:2, version:1, type:'create', value:'verden'})
+        t.same(changes[0], {key:'hello', change:1, to:1, from:null, value:'world'})
+        t.same(changes[1], {key:'hej', change:2, to:1, from:null, value:'verden'})
         t.end()
       }))
     })
@@ -33,9 +33,9 @@ test('read changes feed + update', function(t, db) {
       db.del('hello', function() {
         db.createChangesReadStream().pipe(concat(function(changes) {
           t.same(changes.length, 3, '3 changes')
-          t.same(changes[0], {key:'hello', change:1, version:1, type:'create'})
-          t.same(changes[1], {key:'hello', change:2, version:2, type:'update'})
-          t.same(changes[2], {key:'hello', change:3, version:2, type:'delete'})
+          t.same(changes[0], {key:'hello', change:1, to:1, from:null})
+          t.same(changes[1], {key:'hello', change:2, to:2, from:1})
+          t.same(changes[2], {key:'hello', change:3, to:null, from:2})
           t.end()
         }))
       })
@@ -49,8 +49,8 @@ test('read changes feed + update + since option', function(t, db) {
       db.del('hello', function() {
         db.createChangesReadStream({since:1}).pipe(concat(function(changes) {
           t.same(changes.length, 2, '2 changes')
-          t.same(changes[0], {key:'hello', change:2, version:2, type:'update'})
-          t.same(changes[1], {key:'hello', change:3, version:2, type:'delete'})
+          t.same(changes[0], {key:'hello', change:2, to:2, from:1})
+          t.same(changes[1], {key:'hello', change:3, to:null, from:2})
           t.end()
         }))
       })
@@ -62,8 +62,8 @@ test('read changes feed + update + since option', function(t, db) {
 test('write changed feed', function(t, db) {
   var changes = db.createChangesWriteStream()
 
-  changes.write({key:'hello', change:1, version:1, type:'create', value:'world'})
-  changes.write({key:'hej', change:2, version:1, type:'create', value:'verden'})
+  changes.write({key:'hello', change:1, to:1, from:null, value:'world'})
+  changes.write({key:'hej', change:2, to:1, from:null, value:'verden'})
 
   changes.end(function() {
     db.createReadStream().pipe(concat(function(rows) {
@@ -78,8 +78,8 @@ test('write changed feed', function(t, db) {
 test('write changed feed + updates', function(t, db) {
   var changes = db.createChangesWriteStream()
 
-  changes.write({key:'hello', change:1, version:1, type:'create', value:'world'})
-  changes.write({key:'hello', change:2, version:2, type:'create', value:'verden'})
+  changes.write({key:'hello', change:1, to:1, from:null, value:'world'})
+  changes.write({key:'hello', change:2, to:2, from:1, value:'verden'})
 
   changes.end(function() {
     db.createReadStream().pipe(concat(function(rows) {
@@ -93,9 +93,9 @@ test('write changed feed + updates', function(t, db) {
 test('write changed feed + delete', function(t, db) {
   var changes = db.createChangesWriteStream()
 
-  changes.write({key:'hello', change:1, version:1, type:'create', value:'world'})
-  changes.write({key:'hello', change:2, version:2, type:'create', value:'verden'})
-  changes.write({key:'hello', change:3, version:2, type:'delete'})
+  changes.write({key:'hello', change:1, to:1, from:null, value:'world'})
+  changes.write({key:'hello', change:2, to:2, from:null, value:'verden'})
+  changes.write({key:'hello', change:3, to:null, from:2})
 
   changes.end(function() {
     db.createReadStream().pipe(concat(function(rows) {
@@ -152,8 +152,8 @@ test('feeds can be live', function(t, db) {
   })
 
   var expects = [
-    {change:1, key:'hej', value:'verden', version:1, type:'create'},
-    {change:2, key:'hello', value:'verden', version:1, type:'create'}
+    {change:1, key:'hej', value:'verden', to:1, from:null},
+    {change:2, key:'hello', value:'verden', to:1, from:null}
   ]
 
   feed.on('data', function(data) {
