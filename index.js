@@ -523,22 +523,24 @@ LevelDat.prototype._wait = function(fn, args, isStream) {
   }
 }
 
-LevelDat.prototype.count = function(cb) {
-  if (this.corked) return this._wait(this.count, arguments)
+LevelDat.prototype.stat = function(cb) {
+  if (this.corked) return this._wait(this.stat, arguments)
   var self = this
 
   cb = once(cb)
-  this.meta.get('_count', function(err, result) {
-    if (!result) result = {count:0, change:0}
-    if (result.change === self.change) return cb(null, result.count)
+  this.meta.get('_stat', function(err, result) {
+    if (!result || !result.count || !result.size || !result.change) result = {count:0, change:0, size:0}
+    if (result.change === self.change) return cb(null, result)
 
     var changes = self.createChangesReadStream({
-      since: result.change
+      since: result.change,
+      data: true,
+      valueEncoding: 'binary'
     })
 
     var persist = function(cb) {
-      debug('put meta._count (change: %d, count: %d)', result.change, result.count)
-      self.meta.put('_count', result, function(err) {
+      debug('put meta._stat (change: %d, count: %d, size: %d)', result.change, result.count, result.size)
+      self.meta.put('_stat', result, function(err) {
         if (err) return cb(err)
         cb(null)
       })
@@ -547,6 +549,7 @@ LevelDat.prototype.count = function(cb) {
     var inc = 0
     var ondata = function(data, enc, cb) {
       result.change = data.change
+      if (data.value) result.size += data.value.length
       if (data.to !== 0 && data.from === 0) result.count++
       if (data.to === 0 && data.from !== 0) result.count--
       if (++inc % 5000) cb()
@@ -556,7 +559,7 @@ LevelDat.prototype.count = function(cb) {
     changes.on('error', cb)
     changes.pipe(through.obj(ondata)).on('finish', function() {
       persist(function() {
-        cb(null, result.count)
+        cb(null, result)
       })
     })
   })

@@ -34,9 +34,9 @@ Get a key and value and version.
 
 Delete a key.
 
-#### `db.count(cb)`
+#### `db.stat(cb)`
 
-Count all rows in the database.
+Returns a digest of all rows in the database.
 
 #### `db.meta.get(key, cb)`
 
