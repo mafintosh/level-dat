@@ -37,6 +37,13 @@ var conflict = function(key, version) {
   return err
 }
 
+var changeConflict = function() {
+  var err = new Error('Cannot write change since local change feed mismatch remote.')
+  err.status = 409
+  err.conflict = true
+  return err
+}
+
 var waiter = function(missing, cb) {
   var done = false
   return function(err) {
@@ -252,6 +259,9 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
       var b = batch[i]
 
       debug('put change (change: %d, key: %s, to: %s, from: %s)', b.change, b.key, b.to, b.from)
+
+      if (b.change !== self.change+1) return cb(changeConflict())
+      self.change = b.change
 
       if (b.to === 0) {
         self._change(b.change, b.key, b.from, 0)
