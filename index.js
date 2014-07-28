@@ -5,6 +5,7 @@ var lexint = require('lexicographic-integer')
 var mutex = require('level-mutex')
 var byteStream = require('byte-stream')
 var multistream = require('multistream')
+var duplexify = require('duplexify')
 var from = require('from2')
 var debug = require('debug')('level-dat')
 var util = require('util')
@@ -106,6 +107,9 @@ var LevelDat = function(db, opts, onready) {
 
   var self = this
 
+  this.corked = 1
+  this.waiting = []
+
   this.onchange = []
   this.onchangewrite = function() {
     self.changeFlushed = self.change
@@ -129,12 +133,25 @@ var LevelDat = function(db, opts, onready) {
     self.changeFlushed = self.change
     debug('head change: %d', self.change)
     self.emit('ready', self)
+    self.uncork()
   })
 }
 
 util.inherits(LevelDat, events.EventEmitter)
 
+LevelDat.prototype.cork = function() {
+  this.corked++
+}
+
+LevelDat.prototype.uncork = function() {
+  if (this.corked) this.corked--
+  if (this.corked) return
+  while (this.waiting.length) this.waiting.shift()()
+}
+
 LevelDat.prototype.createVersionStream = function(key, opts) {
+  if (this.corked) return this._wait(this.createVersionStream, arguments, true)
+
   opts = this._mixin(opts)
   opts.start = PREFIX_DATA+key+SEP
   opts.end = PREFIX_DATA+key+SEP+SEP
@@ -159,6 +176,8 @@ LevelDat.prototype.createVersionStream = function(key, opts) {
 
 LevelDat.prototype.valueStream =
 LevelDat.prototype.createValueStream = function(opts) {
+  if (this.corked) return this._wait(this.createValueStream, arguments, true)
+
   opts = this._mixin(opts)
   opts.keys = false
   opts.values = true
@@ -167,6 +186,8 @@ LevelDat.prototype.createValueStream = function(opts) {
 
 LevelDat.prototype.keyStream =
 LevelDat.prototype.createKeyStream = function(opts) {
+  if (this.corked) return this._wait(this.createKeyStream, arguments, true)
+
   opts = this._mixin(opts)
   opts.keys = true
   opts.values = false
@@ -175,6 +196,7 @@ LevelDat.prototype.createKeyStream = function(opts) {
 
 LevelDat.prototype.readStream =
 LevelDat.prototype.createReadStream = function(opts) {
+  if (this.corked) return this._wait(this.createReadStream, arguments, true)
   opts = this._mixin(opts)
 
   var self = this
@@ -213,7 +235,7 @@ LevelDat.prototype.createReadStream = function(opts) {
 
 LevelDat.prototype.writeStream =
 LevelDat.prototype.createWriteStream = function(opts) {
-  this._assert()
+  if (this.corked) return this._wait(this.createWriteStream, arguments, true)
   opts = this._mixin(opts)
 
   var self = this
@@ -236,7 +258,7 @@ LevelDat.prototype.createWriteStream = function(opts) {
 }
 
 LevelDat.prototype.createChangesWriteStream = function(opts) {
-  this._assert()
+  if (this.corked) return this._wait(this.createChangesWriteStream, arguments, true)
   opts = this._mixin(opts)
 
   var self = this
@@ -313,7 +335,7 @@ LevelDat.prototype._tail = function(getSince) {
 }
 
 LevelDat.prototype.createChangesReadStream = function(opts) {
-  this._assert()
+  if (this.corked) return this._wait(this.createChangesReadStream, arguments, true)
   opts = this._mixin(opts)
 
   if (typeof opts.tail === 'number') opts.since = this.changeFlushed - opts.tail
@@ -362,6 +384,7 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
 }
 
 LevelDat.prototype.get = function(key, opts, cb, version) {
+  if (this.corked) return this._wait(this.get, arguments)
   if (typeof opts === 'function') return this.get(key, null, opts)
   opts = this._mixin(opts)
 
@@ -394,7 +417,7 @@ LevelDat.prototype._get = function(key, opts, version, cb) {
 }
 
 LevelDat.prototype.put = function(key, value, opts, cb) {
-  this._assert()
+  if (this.corked) return this._wait(this.put, arguments)
   if (typeof opts === 'function') return this.put(key, value, null, opts)
   if (!cb) cb = noop
   opts = this._mixin(opts)
@@ -403,6 +426,7 @@ LevelDat.prototype.put = function(key, value, opts, cb) {
 }
 
 LevelDat.prototype.batch = function(batch, opts, cb) {
+  if (this.corked) return this._wait(this.batch, arguments)
   if (typeof opts === 'function') return this.batch(batch, null, opts)
   if (!cb) cb = noop
   opts = this._mixin(opts)
@@ -418,7 +442,7 @@ LevelDat.prototype.batch = function(batch, opts, cb) {
 }
 
 LevelDat.prototype._put = function(key, value, opts, version, cb) {
-  this._assert()
+  if (this.corked) return this._wait(this.put, arguments)
   var autoVersion = !version
   if (!version) version = 1
   opts = this._mixin(opts)
@@ -445,7 +469,7 @@ LevelDat.prototype._put = function(key, value, opts, version, cb) {
 
 LevelDat.prototype.del =
 LevelDat.prototype.delete = function(key, cb) {
-  this._assert()
+  if (this.corked) return this._wait(this.del, arguments)
   if (!cb) cb = noop
 
   var self = this
@@ -473,11 +497,29 @@ LevelDat.prototype._mixin = function(opts) {
   return opts
 }
 
-LevelDat.prototype._assert = function() {
-  if (this.change === -1) throw new Error('Database is not ready. Wait for the ready event.')
+LevelDat.prototype._wait = function(fn, args, isStream) {
+  var self = this
+
+  if (isStream) {
+    var proxy = duplexify.obj()
+
+    this.waiting.push(function() {
+      if (proxy.destroyed) return
+      var s = fn.apply(self, args)
+      proxy.setWritable(s.writable ? s : false)
+      proxy.setReadable(s.readable ? s : false)
+    })
+
+    return proxy
+  } else {
+    this.waiting.push(function() {
+      fn.apply(self, args)
+    })
+  }
 }
 
 LevelDat.prototype.count = function(cb) {
+  if (this.corked) return this._wait(this.count, arguments)
   var self = this
 
   cb = once(cb)

@@ -15,9 +15,7 @@ npm install level-dat
 var ldat = require('level-dat')
 
 db = ldat(db) // where db is levelup instance
-db.on('ready', function() {
-  db.createReadStream().on('data', console.log)
-})
+db.createReadStream().on('data', console.log)
 ```
 
 ## API
