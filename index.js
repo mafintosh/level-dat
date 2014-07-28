@@ -300,6 +300,11 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
   return pumpify.obj(format, buffer, ws)
 }
 
+LevelDat.prototype.ready = function(cb) {
+  if (this.corked) return this._wait(this.ready, arguments)
+  cb()
+}
+
 LevelDat.prototype._tail = function(getSince) {
   var self = this
   var since = -1
