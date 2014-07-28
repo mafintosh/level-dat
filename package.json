@@ -1,6 +1,6 @@
 {
   "name": "level-dat",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "LevelDB storage backend for Dat",
   "main": "index.js",
   "dependencies": {
