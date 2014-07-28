@@ -122,14 +122,17 @@ LevelDat.prototype.createVersionStream = function(key, opts) {
   if (this.corked) return this._wait(this.createVersionStream, arguments, true)
 
   opts = this._mixin(opts)
-  opts.start = PREFIX_DATA+key+SEP
-  opts.end = PREFIX_DATA+key+SEP+SEP
+
+  var prefix = PREFIX_DATA+(opts.prefix || '')+SEP
+
+  opts.start = prefix+key+SEP
+  opts.end = prefix+key+SEP+SEP
 
   var stream = through.obj(function(data, enc, cb) {
     var vidx = data.key.lastIndexOf(SEP)
 
     data = {
-      key: data.key.slice(PREFIX_DATA.length, vidx),
+      key: data.key.slice(prefix.length, vidx),
       version: unpack(data.key.slice(vidx+1)),
       value: data.value
     }
@@ -171,20 +174,24 @@ LevelDat.prototype.createReadStream = function(opts) {
   var self = this
   var keys = opts.keys !== false
   var values = opts.values !== false
+  var prefix = opts.prefix || ''
 
   var rs = self.db.createReadStream({
-    start: PREFIX_CUR+(opts.start || ''),
-    end: PREFIX_CUR+(opts.end || SEP)
+    start: PREFIX_CUR+prefix+SEP+(opts.start || ''),
+    end: PREFIX_CUR+prefix+SEP+(opts.end || SEP)
   })
 
   var get = through.obj(function(data, enc, cb) {
     var val = data.value
     var key = data.key.slice(PREFIX_CUR.length)
+    var prefix = key.slice(0, key.indexOf(SEP))
+
+    key = key.slice(prefix.length+1)
 
     if (deleted(val)) return cb()
 
     var version = unpack(val)
-    self.mutex.get(PREFIX_DATA+key+SEP+val, opts, function(err, data) {
+    self.mutex.get(PREFIX_DATA+prefix+SEP+key+SEP+val, opts, function(err, data) {
       if (err) return cb(err)
       debug('get data.%s (version: %d)', key, version)
 
@@ -214,16 +221,16 @@ LevelDat.prototype.createWriteStream = function(opts) {
     time: 3000
   })
 
-  var format = through.obj(function(data, enc, cb) {
+  var prefix = through.obj(function(data, enc, cb) {
     data.length = data.value ? data.value.length || 1 : 1
     cb(null, data)
   })
 
   var ws = through.obj(function(batch, enc, cb) {
-    self.batch(batch, cb)
+    self.batch(batch, opts, cb)
   })
 
-  return pumpify.obj(format, buffer, ws)
+  return pumpify.obj(prefix, buffer, ws)
 }
 
 LevelDat.prototype.createChangesWriteStream = function(opts) {
@@ -237,7 +244,7 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
     time: 3000
   })
 
-  var format = through.obj(function(data, enc, cb) {
+  var prefix = through.obj(function(data, enc, cb) {
     if (!data.value && data.to !== 0) return cb(new Error('data.value is required'))
     data.length = data.value ? data.value.length || 1 : 1
     cb(null, data)
@@ -248,6 +255,7 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
 
     for (var i = 0; i < batch.length; i++) {
       var b = batch[i]
+      var prefix = b.prefix || ''
 
       debug('put change (change: %d, key: %s, to: %s, from: %s)', b.change, b.key, b.to, b.from)
 
@@ -255,18 +263,18 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
       self.change = b.change
 
       if (b.to === 0) {
-        self._change(b.change, b.key, b.from, 0)
-        self.mutex.put(PREFIX_CUR+b.key, pack(b.from)+SEP+'1', wait)
+        self._change(b.change, b.key, b.from, 0, prefix)
+        self.mutex.put(PREFIX_CUR+prefix+SEP+b.key, pack(b.from)+SEP+'1', wait)
       } else {
         var v = pack(b.to)
-        self._change(b.change, b.key, b.from, b.to)
-        self.mutex.put(PREFIX_CUR+b.key, v, noop)
-        self.mutex.put(PREFIX_DATA+b.key+SEP+v, b.value, opts, wait)
+        self._change(b.change, b.key, b.from, b.to, prefix)
+        self.mutex.put(PREFIX_CUR+prefix+SEP+b.key, v, noop)
+        self.mutex.put(PREFIX_DATA+prefix+SEP+b.key+SEP+v, b.value, opts, wait)
       }
     }
   })
 
-  return pumpify.obj(format, buffer, ws)
+  return pumpify.obj(prefix, buffer, ws)
 }
 
 LevelDat.prototype.ready = function(cb) {
@@ -331,7 +339,7 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
   if (opts.tail === true) rs = this._tail(getSince)
   else if (opts.live) rs = multistream.obj([rs, this._tail(getSince)])
 
-  var format = through.obj(function(data, enc, cb) {
+  var prefix = through.obj(function(data, enc, cb) {
     var value = JSON.parse(data)
     if (value[0] <= since) return cb()
 
@@ -344,17 +352,19 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
       to: value[3]
     }
 
+    if (value[4]) data.prefix = value[4]
+
     debug('get change (change: %d, key: %s, to: %d, from: %d, data: %s)', data.change, data.key, data.to, data.from, addData)
     if (!addData || data.to === 0) return cb(null, data)
 
-    self._get(data.key, opts, data.to, function(err, value) {
+    self._get(data.key, opts, data.to, data.prefix, function(err, value) {
       if (err) return cb(err)
       data.value = value
       cb(null, data)
     })
   })
 
-  return pumpify.obj(rs, format)
+  return pumpify.obj(rs, prefix)
 }
 
 LevelDat.prototype.get = function(key, opts, cb, version) {
@@ -362,27 +372,29 @@ LevelDat.prototype.get = function(key, opts, cb, version) {
   if (typeof opts === 'function') return this.get(key, null, opts)
   opts = this._mixin(opts)
 
-  if (!opts.version) this._getLatest(key, opts, cb)
-  else this._get(key, opts, opts.version, cb)
+  if (!opts.version) this._getLatest(key, opts, opts.prefix, cb)
+  else this._get(key, opts, opts.version, opts.prefix, cb)
 }
 
-LevelDat.prototype._getLatest = function(key, opts, cb) {
+LevelDat.prototype._getLatest = function(key, opts, prefix, cb) {
   opts = this._mixin(opts)
+  if (!prefix) prefix = ''
 
   var self = this
-  this.mutex.get(PREFIX_CUR+key, function(err, cur) {
+  this.mutex.get(PREFIX_CUR+prefix+SEP+key, function(err, cur) {
     if (err) return cb(err)
     if (deleted(cur)) return cb(new Error('Key was deleted'))
 
-    self._get(key, opts, unpack(cur), cb)
+    self._get(key, opts, unpack(cur), prefix, cb)
   })
 }
 
-LevelDat.prototype._get = function(key, opts, version, cb) {
+LevelDat.prototype._get = function(key, opts, version, prefix, cb) {
   opts = this._mixin(opts)
   version = +version
+  if (!prefix) prefix = ''
 
-  this.mutex.get(PREFIX_DATA+key+SEP+pack(version), opts, function(err, val) {
+  this.mutex.get(PREFIX_DATA+prefix+SEP+key+SEP+pack(version), opts, function(err, val) {
     if (err) return cb(err)
 
     debug('get data.%s (version: %d)', key, version)
@@ -396,7 +408,7 @@ LevelDat.prototype.put = function(key, value, opts, cb) {
   if (!cb) cb = noop
   opts = this._mixin(opts)
 
-  this._put(key, value, opts, opts.version, cb)
+  this._put(key, value, opts, opts.version, opts.prefix || '', cb)
 }
 
 LevelDat.prototype.batch = function(batch, opts, cb) {
@@ -406,24 +418,26 @@ LevelDat.prototype.batch = function(batch, opts, cb) {
   opts = this._mixin(opts)
 
   if (!batch.length) return cb()
+
+  var prefix = opts.prefix || ''
   var wait = waiter(batch.length, cb)
 
   for (var i = 0; i < batch.length; i++) {
     var b = batch[i]
     if (b.to === 0) this.del(b.key, wait)
-    else this._put(b.key, b.value, opts, b.version || 0, wait)
+    else this._put(b.key, b.value, opts, b.version || 0, prefix, wait)
   }
 }
 
-LevelDat.prototype._put = function(key, value, opts, version, cb) {
-  if (this.corked) return this._wait(this.put, arguments)
+LevelDat.prototype._put = function(key, value, opts, version, prefix, cb) {
   var autoVersion = !version
   if (!version) version = 1
+  if (!prefix) prefix = ''
   opts = this._mixin(opts)
 
   var self = this
 
-  this.mutex.get(PREFIX_CUR+key, function(_, curV) {
+  this.mutex.get(PREFIX_CUR+prefix+SEP+key, function(_, curV) {
     if (curV) curV = unpack(curV)
     if (curV) debug('put data.%s existing version exist (to: %d, from: %d)', key, version, curV)
 
@@ -433,40 +447,44 @@ LevelDat.prototype._put = function(key, value, opts, version, cb) {
 
     var v = pack(version)
     var change = ++self.change
-
     debug('put data.%s (version: %d)', key, version)
-    self._change(change, key, curV || 0, version)
-    self.mutex.put(PREFIX_CUR+key, v, noop)
-    self.mutex.put(PREFIX_DATA+key+SEP+v, value, opts, cb)
+
+    self._change(change, key, curV || 0, version, prefix)
+    self.mutex.put(PREFIX_CUR+prefix+SEP+key, v, noop)
+    self.mutex.put(PREFIX_DATA+prefix+SEP+key+SEP+v, value, opts, cb)
   })
 }
 
 LevelDat.prototype.del =
-LevelDat.prototype.delete = function(key, cb) {
+LevelDat.prototype.delete = function(key, opts, cb) {
   if (this.corked) return this._wait(this.del, arguments)
+  if (typeof opts === 'function') return this.del(key, null, opts)
   if (!cb) cb = noop
+  if (!opts) opts = {}
 
   var self = this
+  var prefix = opts.prefix || ''
 
-  this.mutex.get(PREFIX_CUR+key, function(err, v) {
+  this.mutex.get(PREFIX_CUR+prefix+SEP+key, function(err, v) {
     if (err) return cb(err)
 
     var change = ++self.change
     var version = unpack(v)
 
     debug('del data.%s', key)
-    self._change(change, key, version, 0)
-    self.mutex.put(PREFIX_CUR+key, v+SEP+'1', cb)
+    self._change(change, key, version, 0, prefix)
+    self.mutex.put(PREFIX_CUR+prefix+SEP+key, v+SEP+'1', cb)
   })
 }
 
-LevelDat.prototype._change = function(change, key, from, to) {
-  this.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, from, to]), this.onchangewrite)
+LevelDat.prototype._change = function(change, key, from, to, prefix) {
+  this.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, from, to, prefix]), this.onchangewrite)
 }
 
 LevelDat.prototype._mixin = function(opts) {
   if (!opts) opts = {}
   if (!opts.valueEncoding) opts.valueEncoding = this.defaults.valueEncoding
+  if (!opts.prefix) opts.prefix = this.defaults.prefix
   if (this.defaults.force && opts.force === undefined) opts.force = true
   return opts
 }
