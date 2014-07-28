@@ -506,7 +506,7 @@ LevelDat.prototype.stat = function(cb) {
 
   cb = once(cb)
   this._getMeta('stat', function(err, result) {
-    if (!result || !result.count || !result.size || !result.change) result = {count:0, change:0, size:0}
+    if (!result) result = {change:0, rows:0, inserts:0, updates:0, deletes:0, size:0}
     if (result.change === self.change) return cb(null, result)
 
     var changes = self.createChangesReadStream({
@@ -516,7 +516,7 @@ LevelDat.prototype.stat = function(cb) {
     })
 
     var persist = function(cb) {
-      debug('put meta.stat (change: %d, count: %d, size: %d)', result.change, result.count, result.size)
+      debug('put meta.stat (change: %d, rows: %d, size: %d)', result.change, result.rows, result.size)
       self._putMeta('stat', result, function(err) {
         if (err) return cb(err)
         cb(null)
@@ -527,8 +527,21 @@ LevelDat.prototype.stat = function(cb) {
     var ondata = function(data, enc, cb) {
       result.change = data.change
       if (data.value) result.size += data.value.length
-      if (data.to !== 0 && data.from === 0) result.count++
-      if (data.to === 0 && data.from !== 0) result.count--
+
+      if (data.to !== 0 && data.from === 0) {
+        result.rows++
+        result.inserts++
+      }
+
+      if (data.to === 0 && data.from !== 0) {
+        result.rows--
+        result.deletes++
+      }
+
+      if (data.to !== 0 && data.from !== 0) {
+        result.updates++
+      }
+
       if (++inc % 5000) cb()
       else persist(cb)
     }
