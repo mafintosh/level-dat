@@ -38,14 +38,6 @@ Delete a key.
 
 Returns a digest of all rows in the database.
 
-#### `db.meta.get(key, cb)`
-
-Get a meta key.
-
-#### `db.meta.put(key, value, [opts], [cb])`
-
-Insert a meta key.
-
 #### `db.createReadStream([opts])`
 
 Create a read stream to the database. Data includes the version.

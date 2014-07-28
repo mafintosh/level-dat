@@ -71,35 +71,6 @@ var unpack = function(n) {
   return lexint.unpack(n, 'hex')
 }
 
-var Meta = function(mutex) {
-  this.mutex = mutex
-}
-
-Meta.prototype.get = function(key, opts, cb) {
-  if (typeof opts === 'function') return this.get(key, null, opts)
-  if (!opts) opts = {}
-  if (!opts.valueEncoding) opts.valueEncoding = 'json'
-
-  var self = this
-  this.mutex.afterWrite(function() {
-    debug('get meta.%s', key)
-    self.mutex.get(PREFIX_META+key, opts, function(err, val) {
-      if (err) return cb(err)
-      cb(null, val)
-    })
-  })
-}
-
-Meta.prototype.put = function(key, value, opts, cb) {
-  if (typeof opts === 'function') return this.put(key, value, null, opts)
-  if (!cb) cb = noop
-  if (!opts) opts = {}
-  if (!opts.valueEncoding) opts.valueEncoding = 'json'
-
-  debug('put meta.%s', key)
-  this.mutex.put(PREFIX_META+key, value, opts, cb)
-}
-
 var LevelDat = function(db, opts, onready) {
   if (!(this instanceof LevelDat)) return new LevelDat(db, opts, onready)
   if (typeof opts === 'function') return new LevelDat(db, null, opts)
@@ -120,9 +91,7 @@ var LevelDat = function(db, opts, onready) {
   this.mutex = mutex(db)
   this.change = opts.change || -1
   this.changeFlushed = this.change
-
   this.defaults = opts
-  this.meta = new Meta(this.mutex)
 
   if (onready) this.on('ready', onready)
 
@@ -523,12 +492,20 @@ LevelDat.prototype._wait = function(fn, args, isStream) {
   }
 }
 
+LevelDat.prototype._putMeta = function(key, val, cb) {
+  this.mutex.put(PREFIX_META+key, val, {valueEncoding:'json'}, cb)
+}
+
+LevelDat.prototype._getMeta = function(key, cb) {
+  this.mutex.get(PREFIX_META+key, {valueEncoding:'json'}, cb)
+}
+
 LevelDat.prototype.stat = function(cb) {
   if (this.corked) return this._wait(this.stat, arguments)
   var self = this
 
   cb = once(cb)
-  this.meta.get('_stat', function(err, result) {
+  this._getMeta('stat', function(err, result) {
     if (!result || !result.count || !result.size || !result.change) result = {count:0, change:0, size:0}
     if (result.change === self.change) return cb(null, result)
 
@@ -539,8 +516,8 @@ LevelDat.prototype.stat = function(cb) {
     })
 
     var persist = function(cb) {
-      debug('put meta._stat (change: %d, count: %d, size: %d)', result.change, result.count, result.size)
-      self.meta.put('_stat', result, function(err) {
+      debug('put meta.stat (change: %d, count: %d, size: %d)', result.change, result.count, result.size)
+      self._putMeta('stat', result, function(err) {
         if (err) return cb(err)
         cb(null)
       })

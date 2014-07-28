@@ -35,14 +35,3 @@ test('stat + del', function(t, db) {
     })
   })
 })
-
-test('meta', function(t, db) {
-  db.meta.put('hello', 'world', function(err) {
-    t.notOk(err, 'no err')
-    db.meta.get('hello', function(err, val) {
-      t.notOk(err, 'no err')
-      t.same(val, 'world')
-      t.end()
-    })
-  })
-})
