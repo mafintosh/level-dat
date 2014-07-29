@@ -34,6 +34,10 @@ Get a key and value and version.
 
 Delete a key.
 
+#### `var subdb = db.subset(name)`
+
+Create a subset database that will be versioned and replicated as well
+
 #### `db.stat(cb)`
 
 Returns a digest of all rows in the database.
