@@ -10,6 +10,7 @@ var from = require('from2')
 var debug = require('debug')('level-dat')
 var util = require('util')
 var events = require('events')
+var subset = require('./subset')
 
 var noop = function() {}
 
@@ -107,6 +108,10 @@ var LevelDat = function(db, opts, onready) {
 }
 
 util.inherits(LevelDat, events.EventEmitter)
+
+LevelDat.prototype.subset = function(name) {
+  return subset(this, name)
+}
 
 LevelDat.prototype.cork = function() {
   this.corked++
