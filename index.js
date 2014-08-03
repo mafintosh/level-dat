@@ -268,11 +268,11 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
       self.change = b.change
 
       if (b.to === 0) {
-        self._change(b.change, b.key, b.from, 0, subset)
+        self._change(b.change, b.key, b.from, 0, subset, null)
         self.mutex.put(PREFIX_CUR+subset+SEP+b.key, pack(b.from)+SEP+'1', wait)
       } else {
         var v = pack(b.to)
-        self._change(b.change, b.key, b.from, b.to, subset)
+        self._change(b.change, b.key, b.from, b.to, subset, b.value)
         self.mutex.put(PREFIX_CUR+subset+SEP+b.key, v, noop)
         self.mutex.put(PREFIX_DATA+subset+SEP+b.key+SEP+v, b.value, opts, wait)
       }
@@ -454,7 +454,7 @@ LevelDat.prototype._put = function(key, value, opts, version, subset, cb) {
     var change = ++self.change
     debug('put data.%s (version: %d)', key, version)
 
-    self._change(change, key, curV || 0, version, subset)
+    self._change(change, key, curV || 0, version, subset, value)
     self.mutex.put(PREFIX_CUR+subset+SEP+key, v, noop)
     self.mutex.put(PREFIX_DATA+subset+SEP+key+SEP+v, value, opts, cb)
   })
@@ -477,12 +477,13 @@ LevelDat.prototype.delete = function(key, opts, cb) {
     var version = unpack(v)
 
     debug('del data.%s', key)
-    self._change(change, key, version, 0, subset)
+    self._change(change, key, version, 0, subset, null)
     self.mutex.put(PREFIX_CUR+subset+SEP+key, v+SEP+'1', cb)
   })
 }
 
-LevelDat.prototype._change = function(change, key, from, to, subset) {
+LevelDat.prototype._change = function(change, key, from, to, subset, value) {
+  this.emit('change', {change:change, key:key, from:from, to:from, subset:subset, value:value})
   this.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, from, to, subset]), this.onchangewrite)
 }
 
