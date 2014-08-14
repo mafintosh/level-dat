@@ -550,6 +550,7 @@ LevelDat.prototype.stat = function(cb) {
     var inc = 0
     var ondata = function(data, enc, cb) {
       result.change = data.change
+      if (data.subset) return cb()
       if (data.value) result.size += data.value.length
 
       if (data.to !== 0 && data.from === 0) {
