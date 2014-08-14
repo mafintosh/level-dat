@@ -326,6 +326,7 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
   opts = this._mixin(opts)
 
   if (typeof opts.tail === 'number') opts.since = this.changeFlushed - opts.tail
+  if (opts.tail === true) opts.since = this.changeFlushed
 
   var self = this
   var addData = !!opts.data
@@ -340,9 +341,6 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
   var getSince = function() {
     return lastChange
   }
-
-  if (opts.tail === true) rs = this._tail(getSince)
-  else if (opts.live) rs = multistream.obj([rs, this._tail(getSince)])
 
   var format = through.obj(function(data, enc, cb) {
     var value = JSON.parse(data)
@@ -368,6 +366,9 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
       cb(null, data)
     })
   })
+
+  if (opts.tail === true) return pumpify.obj(this._tail(getSince), format)
+  if (opts.live) return pumpify.obj(multistream.obj([rs, this._tail(getSince)]), format)
 
   return pumpify.obj(rs, format)
 }
