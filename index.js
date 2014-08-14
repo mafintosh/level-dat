@@ -456,7 +456,10 @@ LevelDat.prototype._put = function(key, value, opts, version, subset, cb) {
 
     self._change(change, key, curV || 0, version, subset, value)
     self.mutex.put(PREFIX_CUR+subset+SEP+key, v, noop)
-    self.mutex.put(PREFIX_DATA+subset+SEP+key+SEP+v, value, opts, cb)
+    self.mutex.put(PREFIX_DATA+subset+SEP+key+SEP+v, value, opts, function(err) {
+      if (err) return cb(err)
+      cb(null, value, version)
+    })
   })
 }
 
