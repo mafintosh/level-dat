@@ -60,6 +60,18 @@ var waiter = function(missing, cb) {
   }
 }
 
+var fixRange = function(opts) {
+  if (!opts.reverse) return opts
+
+  if (opts.start < opts.end) {
+    var tmp = opts.start
+    opts.start = opts.end
+    opts.end = tmp
+  }
+
+  return opts
+}
+
 var deleted = function(cur) {
   return cur.length > 2 && cur[cur.length-2] === SEP && cur[cur.length-1] === '1'
 }
@@ -184,18 +196,18 @@ LevelDat.prototype.createReadStream = function(opts) {
   var pre = PREFIX_CUR+subset+SEP
   var ropts = {}
 
-  if (opts.gt) ropts.gt = pre+opts.gt
+  if (opts.start) ropts.start = pre+(opts.start || '')
   else if (opts.gte) ropts.gte = pre+opts.gte
-  else ropts.start = pre+(opts.start || '')
+  else ropts.gt = pre+(opts.gt || '')
 
-  if (opts.lt) ropts.lt = pre+opts.lt
+  if (opts.end) ropts.end = pre+opts.end
   else if (opts.lte) ropts.lte = pre+opts.lte
-  else ropts.end = pre+(opts.end || SEP)
+  else ropts.lt = pre+(opts.lt || SEP)
 
   if (opts.reverse) ropts.reverse = true
   if (opts.limit) ropts.limit = opts.limit
 
-  var rs = self.db.createReadStream(ropts)
+  var rs = self.db.createReadStream(fixRange(ropts))
 
   var get = through.obj(function(data, enc, cb) {
     var val = data.value
