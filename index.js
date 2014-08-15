@@ -181,10 +181,21 @@ LevelDat.prototype.createReadStream = function(opts) {
   var values = opts.values !== false
   var subset = opts.subset || ''
 
-  var rs = self.db.createReadStream({
-    start: PREFIX_CUR+subset+SEP+(opts.start || ''),
-    end: PREFIX_CUR+subset+SEP+(opts.end || SEP)
-  })
+  var pre = PREFIX_CUR+subset+SEP
+  var ropts = {}
+
+  if (opts.gt) ropts.gt = pre+opts.gt
+  else if (opts.gte) ropts.gte = pre+opts.gte
+  else ropts.start = pre+(opts.start || '')
+
+  if (opts.lt) ropts.lt = pre+opts.lt
+  else if (opts.lte) ropts.lte = pre+opts.lte
+  else ropts.end = pre+(opts.end || SEP)
+
+  if (opts.reverse) ropts.reverse = true
+  if (opts.limit) ropts.limit = opts.limit
+
+  var rs = self.db.createReadStream(ropts)
 
   var get = through.obj(function(data, enc, cb) {
     var val = data.value
