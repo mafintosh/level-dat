@@ -11,6 +11,7 @@ var debug = require('debug')('level-dat')
 var util = require('util')
 var events = require('events')
 var subset = require('./subset')
+var stream = require('stream')
 
 var noop = function() {}
 
@@ -391,7 +392,7 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
   })
 
   if (opts.tail === true) return pumpify.obj(this._tail(getSince), format)
-  if (opts.live) return pumpify.obj(multistream.obj([rs, this._tail(getSince)]), format)
+  if (opts.live) return pumpify.obj(multistream.obj([rs.read ? rs : new stream.Readable().wrap(rs), this._tail(getSince)]), format)
 
   return pumpify.obj(rs, format)
 }
@@ -510,7 +511,7 @@ LevelDat.prototype.delete = function(key, opts, cb) {
 }
 
 LevelDat.prototype._change = function(change, key, from, to, subset, value) {
-  this.emit('change', {change:change, key:key, from:from, to:from, subset:subset, value:value})
+  this.emit('change', {change:change, key:key, from:from, to:to, subset:subset, value:value})
   this.mutex.put(PREFIX_CHANGE+pack(change), JSON.stringify([change, key, from, to, subset]), this.onchangewrite)
 }
 
