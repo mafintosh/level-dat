@@ -122,6 +122,13 @@ var LevelDat = function(db, opts, onready) {
 
 util.inherits(LevelDat, events.EventEmitter)
 
+LevelDat.prototype.methods = LevelDat.methods = { // for multilevel
+  createChangesReadStream: {type: 'readable'},
+  createChangesWriteStream: {type: 'writable'},
+  createVersionStream: {type: 'readable'},
+  stat: {type: 'async'}
+}
+
 LevelDat.prototype.subset = function(name) {
   return subset(this, name)
 }
