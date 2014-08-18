@@ -1,5 +1,6 @@
 var through = require('through2')
 var pumpify = require('pumpify')
+var pump = require('pump')
 var once = require('once')
 var lexint = require('lexicographic-integer')
 var mutex = require('level-mutex')
@@ -318,13 +319,11 @@ LevelDat.prototype.ready = function(cb) {
   cb()
 }
 
-LevelDat.prototype._tail = function(getSince) {
+LevelDat.prototype._tail = function(since) {
   var self = this
-  var since = -1
   var next
 
   var rs = from.obj(function(size, cb) {
-    if (since === -1) since = getSince()
     next = cb
     onchange()
   })
@@ -364,16 +363,7 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
   var since = opts.since || 0
   var lastChange = since
 
-  var rs = this.db.createValueStream({
-    start: PREFIX_CHANGE+pack(since),
-    end: PREFIX_CHANGE+SEP
-  })
-
-  var getSince = function() {
-    return lastChange
-  }
-
-  var format = through.obj(function(data, enc, cb) {
+  var format = function(data, enc, cb) {
     var value = JSON.parse(data)
     if (value[0] <= since) return cb()
 
@@ -396,12 +386,25 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
       data.value = value
       cb(null, data)
     })
-  })
+  }
 
-  if (opts.tail === true) return pumpify.obj(this._tail(getSince), format)
-  if (opts.live) return pumpify.obj(multistream.obj([rs.read ? rs : new stream.Readable().wrap(rs), this._tail(getSince)]), format)
+  var dbStream = function() {
+    var rs = self.db.createValueStream({
+      start: PREFIX_CHANGE+pack(since),
+      end: PREFIX_CHANGE+SEP
+    })
 
-  return pumpify.obj(rs, format)
+    return pump(rs, through.obj(format))
+  }
+
+  var liveStream = function() {
+    return pump(self._tail(lastChange), through.obj(format))
+  }
+
+  if (opts.tail === true) return liveStream()
+  if (opts.live) return multistream.obj([dbStream, liveStream])
+
+  return dbStream()
 }
 
 LevelDat.prototype.get = function(key, opts, cb, version) {
