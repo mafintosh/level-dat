@@ -58,3 +58,28 @@ test('version stream', function(t, db) {
   })
 })
 
+test('no conflict on force stream', function(t, db) {
+  var ws = db.createWriteStream({force:true})
+
+  ws.write({
+    key: 'foo',
+    value: '0'
+  })
+
+  ws.write({
+    key: 'foo',
+    value: '1'
+  })
+
+  ws.write({
+    key: 'foo',
+    value: '2'
+  })
+
+  ws.end(function() {
+    db.createReadStream().on('data', function(data) {
+      t.same(data, {key:'foo', value:'2', version:3})
+      t.end()
+    })
+  })
+})
