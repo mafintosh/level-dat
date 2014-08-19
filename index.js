@@ -481,8 +481,9 @@ LevelDat.prototype._put = function(key, value, opts, version, subset, cb) {
     if (curV) curV = unpack(curV)
     if (curV) debug('put data.%s existing version exist (to: %d, from: %d)', key, version, curV)
 
-    if (version === curV && autoVersion && !opts.force) return cb(conflict(key, version))
-    if (version < curV && !opts.force) return cb(conflict(key, version))
+    if (opts.force) version = curV+1
+    if (version < curV) return cb(conflict(key, version))
+    if (version === curV && autoVersion) return cb(conflict(key, version))
     if (version === curV) version++
 
     var v = pack(version)
