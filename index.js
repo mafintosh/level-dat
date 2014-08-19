@@ -252,22 +252,16 @@ LevelDat.prototype.createWriteStream = function(opts) {
   opts = this._mixin(opts)
 
   var self = this
+  var subset = opts.subset || ''
 
-  var buffer = byteStream({
-    limit: WRITE_BUFFER_SIZE,
-    time: 3000
+  return through.obj(function(data, enc, cb) {
+    var next = function(err) {
+      cb(err)
+    }
+
+    if (data.type === 'del') return self.del(data.key, next)
+    self._put(data.key, data.value, opts, data.version || 0, subset, next)
   })
-
-  var prefix = through.obj(function(data, enc, cb) {
-    data.length = data.value ? data.value.length || 1 : 1
-    cb(null, data)
-  })
-
-  var ws = through.obj(function(batch, enc, cb) {
-    self.batch(batch, opts, cb)
-  })
-
-  return pumpify.obj(prefix, buffer, ws)
 }
 
 LevelDat.prototype.createChangesWriteStream = function(opts) {
@@ -460,13 +454,16 @@ LevelDat.prototype.batch = function(batch, opts, cb) {
   if (!batch.length) return cb()
 
   var subset = opts.subset || ''
-  var wait = waiter(batch.length, cb)
 
-  for (var i = 0; i < batch.length; i++) {
-    var b = batch[i]
-    if (b.to === 0) this.del(b.key, wait)
-    else this._put(b.key, b.value, opts, b.version || 0, subset, wait)
+  var loop = function(err) {
+    if (err) return cb(err)
+    var b = batch.shift()
+    if (!b) return cb()
+    if (b.type === 'del') this.del(b.key, loop)
+    else this._put(b.key, b.value, opts, b.version || 0, subset, loop)
   }
+
+  loop()
 }
 
 LevelDat.prototype._put = function(key, value, opts, version, subset, cb) {
@@ -481,7 +478,7 @@ LevelDat.prototype._put = function(key, value, opts, version, subset, cb) {
     if (curV) curV = unpack(curV)
     if (curV) debug('put data.%s existing version exist (to: %d, from: %d)', key, version, curV)
 
-    if (opts.force) version = curV+1
+    if (opts.force) version = (curV || 0)+1
     if (version < curV) return cb(conflict(key, version))
     if (version === curV && autoVersion) return cb(conflict(key, version))
     if (version === curV) version++
