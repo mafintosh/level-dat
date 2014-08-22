@@ -127,7 +127,8 @@ LevelDat.prototype.methods = LevelDat.methods = { // for multilevel
   createChangesReadStream: {type: 'readable'},
   createChangesWriteStream: {type: 'writable'},
   createVersionStream: {type: 'readable'},
-  stat: {type: 'async'}
+  stat: {type: 'async'},
+  approximateSize: {type: 'async'}
 }
 
 LevelDat.prototype.subset = function(name) {
@@ -343,6 +344,12 @@ LevelDat.prototype._tail = function(since) {
   rs.on('close', cleanup)
 
   return rs
+}
+
+LevelDat.prototype.approximateSize = function(start, enc, cb) {
+  if (typeof start === 'function') return this.approximateSize(SEP, SEP+SEP, start)
+  if (!this.db.db || !this.db.db.approximateSize) return cb(new Error('approximateSize is not available'))
+  this.db.db.approximateSize(start, enc, cb)
 }
 
 LevelDat.prototype.createChangesReadStream = function(opts) {
