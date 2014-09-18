@@ -79,6 +79,7 @@ var deleted = function(cur) {
 }
 
 var pack = function(n) {
+  if (typeof n !== 'number') throw new Error('pack(n) must be called with a number')
   return lexint.pack(n, 'hex')
 }
 
