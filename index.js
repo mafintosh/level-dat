@@ -42,7 +42,7 @@ var conflict = function(key, version) {
 }
 
 var changeConflict = function() {
-  var err = new Error('Cannot write change since local change feed mismatch remote.')
+  var err = new Error('Change conflict. Your local dat has a different change feed than your remote dat.')
   err.status = 409
   err.conflict = true
   return err
