@@ -75,7 +75,7 @@ var fixRange = function(opts) {
 }
 
 var deleted = function(cur) {
-  return cur.length > 2 && cur[cur.length-2] === SEP && cur[cur.length-1] === '1'
+  return cur.length > 2 && cur[cur.length-1] === SEP
 }
 
 var pack = function(n) {
@@ -113,7 +113,6 @@ var LevelDat = function(db, opts, onready) {
 
   this.mutex.peekLast({last:PREFIX_CHANGE+SEP}, function(err, key, value) {
     if (err && err.message !== 'range not found') return self.emit('error', err)
-
     self.change = value ? JSON.parse(value)[0] : 0
     self.changeFlushed = self.change
     debug('head change: %d', self.change)
@@ -290,19 +289,18 @@ LevelDat.prototype.createChangesWriteStream = function(opts) {
       var b = batch[i]
       var subset = b.subset || ''
 
-      debug('put change (change: %d, key: %s, to: %s, from: %s)', b.change, b.key, b.to, b.from)
-
       if (b.change !== self.change+1) return cb(changeConflict())
       self.change = b.change
 
       if (b.to === 0) {
         self._change(b.change, b.key, b.from, 0, subset, null)
-        self.mutex.put(PREFIX_CUR+subset+SEP+b.key, pack(b.from)+SEP+'1', wait)
+        self.mutex.put(PREFIX_CUR+subset+SEP+b.key, pack(b.from)+SEP+pack(b.change)+SEP, wait)
       } else {
         var v = pack(b.to)
+        var c = pack(b.change)
         self._change(b.change, b.key, b.from, b.to, subset, b.value)
-        self.mutex.put(PREFIX_CUR+subset+SEP+b.key, v, noop)
-        self.mutex.put(PREFIX_DATA+subset+SEP+b.key+SEP+v, b.value, opts, wait)
+        self.mutex.put(PREFIX_CUR+subset+SEP+b.key, v+SEP+c, noop)
+        self.mutex.put(PREFIX_DATA+subset+SEP+b.key+SEP+v+SEP+c, b.value, opts, wait)
       }
     }
   })
@@ -366,6 +364,7 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
   var lastChange = since
 
   var format = function(data, enc, cb) {
+
     var value = JSON.parse(data)
     if (value[0] <= since) return cb()
 
@@ -383,7 +382,7 @@ LevelDat.prototype.createChangesReadStream = function(opts) {
     debug('get change (change: %d, key: %s, to: %d, from: %d, data: %s)', data.change, data.key, data.to, data.from, addData)
     if (!addData || data.to === 0) return cb(null, data)
 
-    self._get(data.key, opts, data.to, data.subset, function(err, value) {
+    self._get(data.key, opts, data.to, data.change, data.subset, function(err, value) {
       if (err) return cb(err)
       data.value = value
       cb(null, data)
@@ -415,7 +414,7 @@ LevelDat.prototype.get = function(key, opts, cb, version) {
   opts = this._mixin(opts)
 
   if (!opts.version) this._getLatest(key, opts, opts.subset, cb)
-  else this._get(key, opts, opts.version, opts.subset, cb)
+  else this._get(key, opts, opts.version, null, opts.subset, cb)
 }
 
 LevelDat.prototype._getLatest = function(key, opts, subset, cb) {
@@ -423,25 +422,48 @@ LevelDat.prototype._getLatest = function(key, opts, subset, cb) {
   if (!subset) subset = ''
 
   var self = this
-  this.mutex.get(PREFIX_CUR+subset+SEP+key, function(err, cur) {
+  this.mutex.get(PREFIX_CUR+subset+SEP+key, function(err, val) {
     if (err) return cb(err)
-    if (deleted(cur)) return cb(new Error('Key was deleted'))
-
-    self._get(key, opts, unpack(cur), subset, cb)
+    if (deleted(val)) return cb(new Error('Key was deleted'))
+    var vc = val.split(SEP)
+    var curV = unpack(vc[0])
+    var change = unpack(vc[1])
+    self._get(key, opts, curV, change, subset, cb)
   })
 }
 
-LevelDat.prototype._get = function(key, opts, version, subset, cb) {
+LevelDat.prototype._getChange = function(key, opts, version, subset, cb) {
+  opts = this._mixin(opts)
+  if (!subset) subset = ''
+  this.db.createKeyStream({gte:PREFIX_DATA+subset+SEP+key+SEP+pack(version), limit:1})
+    .on('data', function(key) {
+      cb(null, key.split(SEP).slice(-1)[0])
+    })
+    .on('error', function(err) {
+      cb(err)
+    })
+}
+
+LevelDat.prototype._get = function(key, opts, version, change, subset, cb) {
+
   opts = this._mixin(opts)
   version = +version
-  if (!subset) subset = ''
+  var self = this
+  if (!change) {
+    this._getChange(key, opts, version, subset, function (err, change) {
+      if (err) return cb(err)
+      self._get(key, opts, version, change, subset, cb)
+    })
+  } else {
+    change = +change
+    if (!subset) subset = ''
 
-  this.mutex.get(PREFIX_DATA+subset+SEP+key+SEP+pack(version), opts, function(err, val) {
-    if (err) return cb(err)
-
-    debug('get data.%s (version: %d)', key, version)
-    cb(null, val, version)
-  })
+    this.mutex.get(PREFIX_DATA+subset+SEP+key+SEP+pack(version)+SEP+pack(change), opts, function(err, val) {
+      if (err) return cb(err)
+      debug('get data.%s (version: %d, change: %d)', key, version, change)
+      cb(null, val, version, change)
+    })
+  }
 }
 
 LevelDat.prototype.put = function(key, value, opts, cb) {
@@ -449,7 +471,6 @@ LevelDat.prototype.put = function(key, value, opts, cb) {
   if (typeof opts === 'function') return this.put(key, value, null, opts)
   if (!cb) cb = noop
   opts = this._mixin(opts)
-
   this._put(key, value, opts, opts.version, opts.subset || '', cb)
 }
 
@@ -468,22 +489,31 @@ LevelDat.prototype.batch = function(batch, opts, cb) {
     var b = batch.shift()
     if (!b) return cb()
     if (b.type === 'del') this.del(b.key, loop)
-    else this._put(b.key, b.value, opts, b.version || 0, subset, loop)
+    else {
+      this._put(b.key, b.value, opts, b.version || 0, subset, loop)
+    }
   }
 
   loop()
 }
 
 LevelDat.prototype._put = function(key, value, opts, version, subset, cb) {
+
   var autoVersion = !version
   if (!version) version = 1
   if (!subset) subset = ''
   opts = this._mixin(opts)
-
   var self = this
 
-  this.mutex.get(PREFIX_CUR+subset+SEP+key, function(_, curV) {
-    if (curV) curV = unpack(curV)
+  this.mutex.get(PREFIX_CUR+subset+SEP+key, function(_, val) {
+    var curV = null
+    var curC = null
+    if (val) {
+      var vc = val.split(SEP)
+      curV = unpack(vc[0])
+      curC = unpack(vc[1])
+    }
+
     if (curV) debug('put data.%s existing version exist (to: %d, from: %d)', key, version, curV)
 
     if (opts.force) version = (curV || 0)+1
@@ -494,12 +524,14 @@ LevelDat.prototype._put = function(key, value, opts, version, subset, cb) {
     var v = pack(version)
     var change = ++self.change
     debug('put data.%s (version: %d)', key, version)
+    var c = pack(change)
 
     self._change(change, key, curV || 0, version, subset, value)
-    self.mutex.put(PREFIX_CUR+subset+SEP+key, v, noop)
-    self.mutex.put(PREFIX_DATA+subset+SEP+key+SEP+v, value, opts, function(err) {
+    debug('change', change, 'v' ,v, 'value', value, 'curV', curV)
+    self.mutex.put(PREFIX_CUR+subset+SEP+key, v+SEP+c, noop)
+    self.mutex.put(PREFIX_DATA+subset+SEP+key+SEP+v+SEP+c, value, opts, function(err) {
       if (err) return cb(err)
-      cb(null, value, version)
+      cb(null, value, version, change)
     })
   })
 }
@@ -517,12 +549,20 @@ LevelDat.prototype.delete = function(key, opts, cb) {
   this.mutex.get(PREFIX_CUR+subset+SEP+key, function(err, v) {
     if (err) return cb(err)
 
+    var curV = null
+    var curC = null
+    if (v) {
+      var vc = v.split(SEP)
+      curV = unpack(vc[0])
+      curC = unpack(vc[1])
+    }
+
     var change = ++self.change
-    var version = unpack(v)
+    var version = curV
 
     debug('del data.%s', key)
     self._change(change, key, version, 0, subset, null)
-    self.mutex.put(PREFIX_CUR+subset+SEP+key, v+SEP+'1', cb)
+    self.mutex.put(PREFIX_CUR+subset+SEP+key, curV+SEP+pack(change)+SEP, cb)
   })
 }
 
