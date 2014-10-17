@@ -50,8 +50,8 @@ test('version stream', function(t, db) {
       t.notOk(err, 'no err')
       db.createVersionStream('foo').pipe(concat(function(versions) {
         t.same(versions.length, 2, '2 versions')
-        t.same(versions[0], {key:'foo', value:'bar', version:1})
-        t.same(versions[1], {key:'foo', value:'baz', version:2})
+        t.same(versions[0], {key:'foo', value:'bar', version:1, change:1})
+        t.same(versions[1], {key:'foo', value:'baz', version:2, change:2})
         t.end()
       }))
     })
