@@ -156,11 +156,14 @@ LevelDat.prototype.createVersionStream = function(key, opts) {
   opts.end = prefix+key+SEP+SEP
 
   var stream = through.obj(function(data, enc, cb) {
-    var vidx = data.key.lastIndexOf(SEP)
+    var cidx = data.key.lastIndexOf(SEP)
+    var vidx = data.key.slice(0,cidx).lastIndexOf(SEP)
+    var vc = data.key.slice(vidx+1).split(SEP)
 
     data = {
       key: data.key.slice(prefix.length, vidx),
-      version: unpack(data.key.slice(vidx+1)),
+      change: unpack(vc[1]),
+      version: unpack(vc[0]),
       value: data.value
     }
 
@@ -228,7 +231,9 @@ LevelDat.prototype.createReadStream = function(opts) {
 
     if (deleted(val)) return cb()
 
-    var version = unpack(val)
+    var vc = val.split(SEP)
+    var version = unpack(vc[0])
+
     self.mutex.get(PREFIX_DATA+subset+SEP+key+SEP+val, opts, function(err, data) {
       if (err) return cb(err)
       debug('get data.%s (version: %d)', key, version)
