@@ -482,6 +482,11 @@ LevelDat.prototype._put = function(key, value, opts, version, subset, cb) {
 
   var self = this
 
+  if(typeof number !== 'number') {
+    version = parseInt(version)
+    if(isNaN(version)) version = 1
+  }
+
   this.mutex.get(PREFIX_CUR+subset+SEP+key, function(_, curV) {
     if (curV) curV = unpack(curV)
     if (curV) debug('put data.%s existing version exist (to: %d, from: %d)', key, version, curV)
