@@ -16,6 +16,21 @@ test('two versions', function(t, db) {
   })
 })
 
+test('version as string', function(t, db) {
+  db.put('foo', 'bar', function(err) {
+    t.notOk(err, 'no err')
+    db.put('foo', 'baz', {version:'1'}, function(err) {
+      t.notOk(err, 'no err')
+      db.get('foo', function(err, val, version) {
+        t.notOk(err, 'no err')
+        t.same(val, 'baz')
+        t.same(version, 2)
+        t.end()
+      })
+    })
+  })
+})
+
 test('conflict', function(t, db) {
   db.put('foo', 'bar', function(err) {
     t.notOk(err, 'no err')
