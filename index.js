@@ -13,6 +13,7 @@ var util = require('util')
 var events = require('events')
 var subset = require('./subset')
 var stream = require('stream')
+var mutexify = require('mutexify')
 
 var noop = function() {}
 
@@ -108,6 +109,7 @@ var LevelDat = function(db, opts, onready) {
   this.change = opts.change || -1
   this.changeFlushed = this.change
   this.defaults = opts
+  this.lock = mutexify()
 
   if (onready) this.on('ready', onready)
 
@@ -572,53 +574,56 @@ LevelDat.prototype.stat = function(cb) {
   if (this.corked) return this._wait(this.stat, arguments)
   var self = this
 
-  cb = once(cb)
-  this._getMeta('stat', function(err, result) {
-    if (!result) result = {change:0, rows:0, inserts:0, updates:0, deletes:0, size:0}
-    if (result.change === self.change) return cb(null, result)
+  this.lock(function(release) {
+    cb = once(release.bind(null, cb))
 
-    var changes = self.createChangesReadStream({
-      since: result.change,
-      data: true,
-      valueEncoding: 'binary'
-    })
+    self._getMeta('stat', function(err, result) {
+      if (!result) result = {change:0, rows:0, inserts:0, updates:0, deletes:0, size:0}
+      if (result.change === self.change) return cb(null, result)
 
-    var persist = function(cb) {
-      debug('put meta.stat (change: %d, rows: %d, size: %d)', result.change, result.rows, result.size)
-      self._putMeta('stat', result, function(err) {
-        if (err) return cb(err)
-        cb(null)
+      var changes = self.createChangesReadStream({
+        since: result.change,
+        data: true,
+        valueEncoding: 'binary'
       })
-    }
 
-    var inc = 0
-    var ondata = function(data, enc, cb) {
-      result.change = data.change
-      if (data.subset) return cb()
-      if (data.value) result.size += data.value.length
-
-      if (data.to !== 0 && data.from === 0) {
-        result.rows++
-        result.inserts++
+      var persist = function(cb) {
+        debug('put meta.stat (change: %d, rows: %d, size: %d)', result.change, result.rows, result.size)
+        self._putMeta('stat', result, function(err) {
+          if (err) return cb(err)
+          cb(null)
+        })
       }
 
-      if (data.to === 0 && data.from !== 0) {
-        result.rows--
-        result.deletes++
+      var inc = 0
+      var ondata = function(data, enc, cb) {
+        result.change = data.change
+        if (data.subset) return cb()
+        if (data.value) result.size += data.value.length
+
+        if (data.to !== 0 && data.from === 0) {
+          result.rows++
+          result.inserts++
+        }
+
+        if (data.to === 0 && data.from !== 0) {
+          result.rows--
+          result.deletes++
+        }
+
+        if (data.to !== 0 && data.from !== 0) {
+          result.updates++
+        }
+
+        if (++inc % 5000) cb()
+        else persist(cb)
       }
 
-      if (data.to !== 0 && data.from !== 0) {
-        result.updates++
-      }
-
-      if (++inc % 5000) cb()
-      else persist(cb)
-    }
-
-    changes.on('error', cb)
-    changes.pipe(through.obj(ondata)).on('finish', function() {
-      persist(function() {
-        cb(null, result)
+      changes.on('error', cb)
+      changes.pipe(through.obj(ondata)).on('finish', function() {
+        persist(function() {
+          cb(null, result)
+        })
       })
     })
   })
